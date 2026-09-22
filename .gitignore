@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+*.log
+npm-debug.log*
+.DS_Store
+*.tsbuildinfo
+/coverage
+/test-results
+/playwright-report
+/public/uploads/*
+!/public/uploads/.gitkeep
