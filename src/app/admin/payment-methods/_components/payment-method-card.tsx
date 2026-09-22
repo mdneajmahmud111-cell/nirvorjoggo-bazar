@@ -24,10 +24,16 @@ export interface PaymentMethodData {
   feeFixed: string;
   feePercent: string;
   merchantNumber: string | null;
-  isConfigured: boolean;
+  mode: "MANUAL" | "AUTOMATIC";
+  activation: { ok: boolean; reason?: string };
 }
 
-const ENV_VARS_BY_CODE: Record<string, string[]> = {
+// Only bKash and Nagad have a real Manual/Automatic switch — Rocket and Bank Transfer are
+// always manual (no public merchant API exists for them), SSLCommerz is always automatic (no
+// personal-account equivalent), and COD needs neither.
+const MODE_SWITCHABLE = new Set(["BKASH", "NAGAD"]);
+
+const AUTOMATIC_ENV_VARS_BY_CODE: Record<string, string[]> = {
   BKASH: ["BKASH_BASE_URL", "BKASH_USERNAME", "BKASH_PASSWORD", "BKASH_APP_KEY", "BKASH_APP_SECRET", "BKASH_CALLBACK_URL"],
   NAGAD: [
     "NAGAD_BASE_URL",
@@ -37,7 +43,7 @@ const ENV_VARS_BY_CODE: Record<string, string[]> = {
     "NAGAD_PUBLIC_KEY",
     "NAGAD_CALLBACK_URL",
   ],
-  ROCKET: ["ROCKET_MERCHANT_NUMBER", "ROCKET_MERCHANT_ACCOUNT_TYPE", "ROCKET_VERIFICATION_API_URL", "ROCKET_VERIFICATION_API_KEY"],
+  ROCKET: ["ROCKET_MERCHANT_NUMBER (optional deploy-time default — a number set below takes priority)"],
   SSLCOMMERZ: [
     "SSLCOMMERZ_STORE_ID",
     "SSLCOMMERZ_STORE_PASSWORD",
@@ -51,11 +57,21 @@ const ENV_VARS_BY_CODE: Record<string, string[]> = {
   COD: [],
 };
 
+// Whether env vars are even relevant to show right now: SSLCommerz always, Rocket always
+// (optional fallback), bKash/Nagad only while in Automatic mode.
+function envVarsRelevant(method: PaymentMethodData): boolean {
+  if (method.code === "SSLCOMMERZ" || method.code === "ROCKET") return true;
+  if (MODE_SWITCHABLE.has(method.code)) return method.mode === "AUTOMATIC";
+  return false;
+}
+
 export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const envVars = ENV_VARS_BY_CODE[method.code] ?? [];
+  const [mode, setMode] = useState<"MANUAL" | "AUTOMATIC">(method.mode);
+  const envVars = AUTOMATIC_ENV_VARS_BY_CODE[method.code] ?? [];
+  const showEnvVars = envVarsRelevant({ ...method, mode });
 
   const {
     register,
@@ -74,6 +90,7 @@ export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
       feeFixed: Number(method.feeFixed),
       feePercent: Number(method.feePercent),
       merchantNumber: method.merchantNumber,
+      mode: method.mode,
     },
   });
 
@@ -106,7 +123,10 @@ export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
         </div>
         <div className="flex items-center gap-2">
           <ActiveBadge isActive={method.isActive} />
-          {envVars.length > 0 && <ConfiguredBadge isConfigured={method.isConfigured} />}
+          {MODE_SWITCHABLE.has(method.code) && (
+            <span className="badge bg-purple-100 text-purple-800">{method.mode === "MANUAL" ? "Manual" : "Automatic"}</span>
+          )}
+          {method.code !== "COD" && <ConfiguredBadge isConfigured={method.activation.ok} />}
           <button type="button" className="btn-secondary" onClick={() => setOpen((o) => !o)}>
             {open ? "Close" : "Edit"}
           </button>
@@ -121,11 +141,34 @@ export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
               Active (visible to customers at checkout)
             </label>
           </div>
-          {envVars.length > 0 && !method.isConfigured && (
-            <p className="rounded-md bg-red-50 p-2 text-xs text-red-700">
-              This method cannot be activated yet — the server is missing one or more of the environment variables listed below.
-              Set them and redeploy first.
-            </p>
+          {!method.activation.ok && (
+            <p className="rounded-md bg-red-50 p-2 text-xs text-red-700">{method.activation.reason}</p>
+          )}
+
+          {MODE_SWITCHABLE.has(method.code) && (
+            <div>
+              <p className="label">Mode</p>
+              <div className="flex gap-4 text-sm">
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" value="MANUAL" {...register("mode")} onChange={() => setMode("MANUAL")} defaultChecked={method.mode === "MANUAL"} />
+                  Manual (personal number, admin verifies)
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    value="AUTOMATIC"
+                    {...register("mode")}
+                    onChange={() => setMode("AUTOMATIC")}
+                    defaultChecked={method.mode === "AUTOMATIC"}
+                  />
+                  Automatic (merchant API)
+                </label>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Manual needs only the number below — no API credentials. Switching to Automatic requires the environment
+                variables listed at the bottom of this card to already be set on the server.
+              </p>
+            </div>
           )}
 
           <div>
@@ -160,16 +203,22 @@ export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
             />
           </div>
 
-          <div>
-            <label className="label" htmlFor={`merchantNumber-${method.id}`}>
-              Merchant number
-            </label>
-            <input
-              id={`merchantNumber-${method.id}`}
-              className="input"
-              {...register("merchantNumber", { setValueAs: (v) => (v === "" ? null : v) })}
-            />
-          </div>
+          {["BKASH", "NAGAD", "ROCKET"].includes(method.code) && (
+            <div>
+              <label className="label" htmlFor={`merchantNumber-${method.id}`}>
+                Personal / merchant number
+              </label>
+              <input
+                id={`merchantNumber-${method.id}`}
+                className="input"
+                placeholder="01XXXXXXXXX"
+                {...register("merchantNumber", { setValueAs: (v) => (v === "" ? null : v) })}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Shown to customers at checkout to send payment to{MODE_SWITCHABLE.has(method.code) ? " while in Manual mode" : ""}.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -239,9 +288,9 @@ export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
         </form>
       )}
 
-      {envVars.length > 0 && (
+      {showEnvVars && envVars.length > 0 && (
         <div className="mt-3 rounded-md bg-gray-50 p-3 text-xs text-gray-500">
-          <p className="font-medium text-gray-700">Provider secrets are configured via environment variables only:</p>
+          <p className="font-medium text-gray-700">Provider secrets are configured via environment variables only, never here:</p>
           <p className="mt-1 font-mono">{envVars.join(", ")}</p>
         </div>
       )}

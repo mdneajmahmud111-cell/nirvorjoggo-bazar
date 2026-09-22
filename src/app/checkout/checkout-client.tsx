@@ -61,6 +61,7 @@ interface PaymentMethodDto {
   feeFixed: string | number;
   feePercent: string | number;
   merchantNumber?: string | null;
+  mode?: "MANUAL" | "AUTOMATIC";
 }
 
 interface BankAccountDto {
@@ -664,9 +665,9 @@ export function CheckoutClient({ paymentError }: { paymentError?: string }) {
                         {paymentMethodCode === m.code && (
                           <div className="mt-2 space-y-2">
                             {m.instructions && <p className="text-xs text-gray-500">{m.instructions}</p>}
-                            {m.code === "ROCKET" && m.merchantNumber && (
+                            {m.code !== "BANK_TRANSFER" && m.mode !== "AUTOMATIC" && m.merchantNumber && (
                               <p className="rounded bg-white p-2 text-xs text-gray-700">
-                                Send payment to Rocket number: <span className="font-semibold">{m.merchantNumber}</span>
+                                Send payment to {m.displayName} number: <span className="font-semibold">{m.merchantNumber}</span>
                               </p>
                             )}
                             {m.code === "BANK_TRANSFER" && (

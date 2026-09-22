@@ -88,6 +88,12 @@ async function main() {
   }
 
   // --- Payment methods ----------------------------------------------------
+  // Every non-COD method starts INACTIVE and with no merchant number/account attached — the
+  // owner must enter their own real personal or merchant details via the Admin Payment Methods
+  // / Bank Accounts UI and switch it on themselves. Nothing fabricated ships active by default.
+  // bKash and Nagad default to MANUAL mode (personal-account, admin-verified) since that needs
+  // no merchant API credentials; switching either to AUTOMATIC once real credentials are set in
+  // the environment requires no checkout rebuild, just an admin toggle.
   const paymentMethods: {
     code: "COD" | "BKASH" | "NAGAD" | "ROCKET" | "SSLCOMMERZ" | "BANK_TRANSFER";
     displayName: string;
@@ -95,6 +101,7 @@ async function main() {
     instructions?: string;
     isActive: boolean;
     displayOrder: number;
+    mode?: "MANUAL" | "AUTOMATIC";
     feeFixed?: number;
     feePercent?: number;
     merchantNumber?: string;
@@ -103,16 +110,20 @@ async function main() {
     {
       code: "BKASH",
       displayName: "bKash",
-      description: "Pay securely online with bKash.",
+      description: "Send payment to our bKash number and submit your Transaction ID.",
+      instructions: "Send Money to the number below from your bKash app, then enter the Transaction ID from the confirmation SMS.",
       isActive: false,
       displayOrder: 2,
+      mode: "MANUAL",
     },
     {
       code: "NAGAD",
       displayName: "Nagad",
-      description: "Pay securely online with Nagad.",
+      description: "Send payment to our Nagad number and submit your Transaction ID.",
+      instructions: "Send Money to the number below from your Nagad app, then enter the Transaction ID from the confirmation SMS.",
       isActive: false,
       displayOrder: 3,
+      mode: "MANUAL",
     },
     {
       code: "ROCKET",
@@ -121,7 +132,7 @@ async function main() {
       instructions: "Dial *322# and send money to the number below, then submit your Transaction ID.",
       isActive: false,
       displayOrder: 4,
-      merchantNumber: "01900000000",
+      mode: "MANUAL",
     },
     {
       code: "SSLCOMMERZ",
@@ -129,13 +140,15 @@ async function main() {
       description: "Pay with any debit/credit card or mobile banking via SSLCommerz.",
       isActive: false,
       displayOrder: 5,
+      mode: "AUTOMATIC",
     },
     {
       code: "BANK_TRANSFER",
       displayName: "Bank Transfer",
       description: "Transfer to one of our bank accounts and submit your reference number.",
-      isActive: true,
+      isActive: false,
       displayOrder: 6,
+      mode: "MANUAL",
     },
   ];
 
@@ -147,22 +160,9 @@ async function main() {
     });
   }
 
-  await prisma.bankAccount.upsert({
-    where: { id: "seed-bank-account-1" },
-    create: {
-      id: "seed-bank-account-1",
-      bankName: "Dutch-Bangla Bank Limited",
-      accountName: "Nirvorjoggo Bazar",
-      accountNumber: "1234567890123",
-      branch: "Gulshan Branch",
-      routingNumber: "090261234",
-      accountType: "CURRENT",
-      instructions: "Please use your Order Number as the deposit reference.",
-      isActive: true,
-      displayOrder: 1,
-    },
-    update: {},
-  });
+  // No bank account is seeded here on purpose — a fabricated bank name/account number would
+  // otherwise be shown to real customers as if it belonged to the store. The owner must add
+  // their real account via /admin/bank-accounts before enabling Bank Transfer at checkout.
 
   // --- Categories -----------------------------------------------------------
   const categoryDefs = [

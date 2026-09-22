@@ -6,8 +6,6 @@ import { getCurrentSession } from "@/lib/rbac";
 import { formatBDT, formatDateTime, ORDER_STATUS_COLORS, ORDER_STATUS_LABELS } from "@/lib/format";
 import { PaymentStatusPanel } from "./payment-status";
 
-const MANUAL_METHODS = new Set(["ROCKET", "BANK_TRANSFER"]);
-
 export default async function OrderSuccessPage({
   params,
   searchParams,
@@ -41,7 +39,14 @@ export default async function OrderSuccessPage({
     ? order.payments.find((p) => p.id === searchParams.paymentId)
     : order.payments[order.payments.length - 1];
 
-  const needsManualSubmission = Boolean(payment && MANUAL_METHODS.has(payment.paymentMethod.code));
+  // A payment needs a customer-submitted transaction ID whenever its initiation flagged that
+  // (payment.status stays PENDING until submitted — see initiatePaymentForOrder), or after an
+  // admin rejects a prior submission and it needs to be corrected and resent. This is driven
+  // entirely by the payment's own recorded state, not a hard-coded list of provider codes, so
+  // it automatically covers bKash/Nagad in Manual mode without needing to special-case them.
+  const needsManualSubmission = Boolean(
+    payment && (payment.status === "PENDING" || payment.verificationStatus === "REJECTED"),
+  );
   const initialShowForm = Boolean(
     payment && needsManualSubmission && payment.verificationStatus === "PENDING_REVIEW" && !payment.transactionId,
   );

@@ -6,6 +6,11 @@ const publicPem = publicKey.export({ type: "pkcs1", format: "pem" }).toString();
 const privatePem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
 
 vi.mock("@/lib/payments/audit", () => ({ recordTransaction: vi.fn() }));
+// Automated-flow tests below need the provider to read AUTOMATIC mode from the DB — real
+// deployments default Nagad to MANUAL (see the "manual mode" describe block further down for
+// that path), so this must be pinned explicitly rather than relying on a default.
+const findUniqueMock = vi.fn().mockResolvedValue({ mode: "AUTOMATIC", merchantNumber: null });
+vi.mock("@/lib/prisma", () => ({ prisma: { paymentMethod: { findUnique: (...args: unknown[]) => findUniqueMock(...args) } } }));
 vi.mock("@/lib/env", () => ({
   env: {
     nagad: {
@@ -110,5 +115,37 @@ describe("NagadProvider.initiate", () => {
 
     expect(seen).toHaveLength(2);
     expect(seen[0]).toBe(seen[1]);
+  });
+});
+
+describe("NagadProvider manual mode", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("shows the admin-configured personal number and never calls the Nagad API, when mode is MANUAL", async () => {
+    findUniqueMock.mockResolvedValueOnce({ mode: "MANUAL", merchantNumber: "01822223333" });
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+
+    const result = await NagadProvider.initiate({ payment: basePayment, order: baseOrder });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.requiresManualVerification).toBe(true);
+    expect(result.instructions).toContain("01822223333");
+    expect(result.redirectUrl).toBeUndefined();
+  });
+
+  it("refuses to activate manual mode with no personal number configured", async () => {
+    findUniqueMock.mockResolvedValueOnce({ mode: "MANUAL", merchantNumber: null });
+    await expect(NagadProvider.initiate({ payment: basePayment, order: baseOrder })).rejects.toThrow(/no personal\/merchant number/i);
+  });
+
+  it("a manually-submitted payment (no real Nagad paymentReferenceId) is never queried against the live Nagad API", async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+
+    const result = await NagadProvider.queryStatus!({ ...basePayment, providerTransactionId: null });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.status).toBe("PROCESSING");
   });
 });

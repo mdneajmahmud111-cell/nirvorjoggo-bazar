@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validation/auth";
+import { rateLimit } from "@/lib/rate-limit";
 
 declare module "next-auth" {
   interface Session extends DefaultSession {
@@ -42,6 +43,11 @@ export const authOptions: AuthOptions = {
         const parsed = loginSchema.safeParse(raw);
         if (!parsed.success) return null;
         const { phone, password } = parsed.data;
+
+        // Throttle per phone number so a stolen/guessed number can't be brute-forced, no matter
+        // how many source IPs the attacker rotates through.
+        const { allowed } = await rateLimit(`login:${phone}`, { max: 10, windowMs: 15 * 60_000 });
+        if (!allowed) return null;
 
         const user = await prisma.user.findUnique({ where: { phone } });
         if (!user || !user.isActive) return null;

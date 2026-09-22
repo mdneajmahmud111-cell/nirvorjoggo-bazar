@@ -12,12 +12,19 @@ import { PaymentProviderError } from "@/lib/payments/types";
 import { recordTransaction } from "@/lib/payments/audit";
 
 /**
- * bKash Tokenized Checkout (PGW) integration.
- * Official spec: https://developer.bka.sh/docs/tokenized-checkout-url-setup
+ * bKash payment method — supports two modes, switchable by the admin at any time with no
+ * checkout rebuild required:
  *
- * Flow: grant token -> create payment -> customer completes on bKash's bkashURL ->
- * bKash redirects back to our callback with paymentID + status -> execute payment ->
- * bKash confirms trxID -> we verify amount/paymentID match before marking SUCCESS.
+ *  - MANUAL: the owner's personal/merchant bKash number is shown to the customer, who sends
+ *    money via the bKash app's "Send Money" and submits the Transaction ID for admin review.
+ *    Needs no API credentials at all — this is how the store can launch before bKash merchant
+ *    onboarding is complete.
+ *  - AUTOMATIC: bKash Tokenized Checkout (PGW). Official spec:
+ *    https://developer.bka.sh/docs/tokenized-checkout-url-setup
+ *    Flow: grant token -> create payment -> customer completes on bKash's bkashURL ->
+ *    bKash redirects back to our callback with paymentID + status -> execute payment ->
+ *    bKash confirms trxID -> we verify amount/paymentID match before marking SUCCESS.
+ *    Requires BKASH_USERNAME/PASSWORD/APP_KEY/APP_SECRET to be set.
  */
 
 interface TokenGrantResponse {
@@ -114,12 +121,31 @@ async function grantToken(): Promise<string> {
   return cachedToken.idToken;
 }
 
+async function getMethodConfig() {
+  return prisma.paymentMethod.findUnique({ where: { code: "BKASH" } });
+}
+
 export const BkashProvider: PaymentProvider = {
   code: "BKASH",
   supportsRefund: true,
+  // isManual reflects the common case; the actual mode is decided per-payment in initiate()
+  // below from the admin-configured PaymentMethod.mode, since bKash can run either way.
   isManual: false,
 
   async initiate(ctx: PaymentInitiationContext): Promise<PaymentInitiationResult> {
+    const method = await getMethodConfig();
+
+    if (method?.mode === "MANUAL") {
+      if (!method.merchantNumber) {
+        throw new PaymentProviderError("bKash is set to manual mode but no personal/merchant number has been configured by the admin yet");
+      }
+      const instructions =
+        `Open your bKash app, choose "Send Money", send Tk ${Number(ctx.payment.amount).toFixed(2)} to ` +
+        `${method.merchantNumber}, then enter the Transaction ID from the confirmation SMS on the next screen.`;
+      await recordTransaction(ctx.payment.id, "CREATE", "SUCCESS", { mode: "MANUAL", merchantNumber: method.merchantNumber }, { instructions });
+      return { instructions, requiresManualVerification: true, rawResponse: { mode: "MANUAL", merchantNumber: method.merchantNumber } };
+    }
+
     const idToken = await grantToken();
 
     const requestBody = {
@@ -206,6 +232,13 @@ export const BkashProvider: PaymentProvider = {
   },
 
   async queryStatus(payment: Payment): Promise<PaymentCallbackResult> {
+    // A manually-submitted payment never went through the automated create/execute flow, so it
+    // has no real bKash paymentID — never call bKash's API with one, just leave it for manual
+    // admin review (see submitManualPaymentVerification / /admin/payments).
+    if (!payment.providerTransactionId) {
+      return { success: false, status: "PROCESSING", message: "Awaiting manual verification" };
+    }
+
     const idToken = await grantToken();
     const body = { paymentID: payment.providerTransactionId };
     const response = await bkashFetch<ExecutePaymentResponse>("/tokenized/checkout/payment/status", {

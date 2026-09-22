@@ -1,18 +1,26 @@
 import { publicEncrypt, randomBytes, createSign, constants } from "crypto";
 import type { Payment } from "@prisma/client";
 import { env } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
 import type { PaymentCallbackResult, PaymentInitiationContext, PaymentInitiationResult, PaymentProvider } from "@/lib/payments/types";
 import { PaymentProviderError } from "@/lib/payments/types";
 import { recordTransaction } from "@/lib/payments/audit";
 
 /**
- * Nagad Merchant Checkout API integration.
- * Official spec: https://developer.mynagad.com/ (Checkout API — RSA based signing/encryption)
+ * Nagad payment method — supports two modes, switchable by the admin at any time with no
+ * checkout rebuild required:
  *
- * Flow: initialize (send RSA-signed challenge) -> Nagad returns paymentReferenceId + challenge ->
- * complete initialize with signed order payload -> Nagad returns callBackUrl -> customer
- * completes payment on Nagad -> Nagad redirects to our callback with payment_ref_id + status ->
- * we independently call the verify/payment endpoint (never trust the redirect query params alone).
+ *  - MANUAL: the owner's personal/merchant Nagad number is shown to the customer, who sends
+ *    money via the Nagad app's "Send Money" and submits the Transaction ID for admin review.
+ *    Needs no API credentials at all.
+ *  - AUTOMATIC: Nagad Merchant Checkout API (RSA-based signing/encryption). Official spec:
+ *    https://developer.mynagad.com/
+ *    Flow: initialize (send RSA-signed challenge) -> Nagad returns paymentReferenceId +
+ *    challenge -> complete initialize with signed order payload -> Nagad returns callBackUrl ->
+ *    customer completes payment on Nagad -> Nagad redirects to our callback with
+ *    payment_ref_id + status -> we independently call the verify/payment endpoint (never trust
+ *    the redirect query params alone). Requires NAGAD_MERCHANT_ID/MERCHANT_NUMBER/
+ *    MERCHANT_PRIVATE_KEY/PUBLIC_KEY to be set.
  */
 
 /**
@@ -91,12 +99,31 @@ function baseHeaders(clientIp: string) {
   };
 }
 
+async function getMethodConfig() {
+  return prisma.paymentMethod.findUnique({ where: { code: "NAGAD" } });
+}
+
 export const NagadProvider: PaymentProvider = {
   code: "NAGAD",
   supportsRefund: false,
+  // isManual reflects the common case; the actual mode is decided per-payment in initiate()
+  // below from the admin-configured PaymentMethod.mode, since Nagad can run either way.
   isManual: false,
 
   async initiate(ctx: PaymentInitiationContext): Promise<PaymentInitiationResult> {
+    const method = await getMethodConfig();
+
+    if (method?.mode === "MANUAL") {
+      if (!method.merchantNumber) {
+        throw new PaymentProviderError("Nagad is set to manual mode but no personal/merchant number has been configured by the admin yet");
+      }
+      const instructions =
+        `Open your Nagad app, choose "Send Money", send Tk ${Number(ctx.payment.amount).toFixed(2)} to ` +
+        `${method.merchantNumber}, then enter the Transaction ID from the confirmation SMS on the next screen.`;
+      await recordTransaction(ctx.payment.id, "CREATE", "SUCCESS", { mode: "MANUAL", merchantNumber: method.merchantNumber }, { instructions });
+      return { instructions, requiresManualVerification: true, rawResponse: { mode: "MANUAL", merchantNumber: method.merchantNumber } };
+    }
+
     const merchantId = env.nagad.merchantId();
     const orderId = ctx.payment.merchantTransactionId;
     const clientIp = ctx.clientIp || "127.0.0.1";
@@ -158,8 +185,11 @@ export const NagadProvider: PaymentProvider = {
   },
 
   async queryStatus(payment: Payment): Promise<PaymentCallbackResult> {
+    // A manually-submitted payment never went through the automated initialize/complete flow,
+    // so it has no real Nagad paymentReferenceId — never call Nagad's API with one, just leave
+    // it for manual admin review (see submitManualPaymentVerification / /admin/payments).
     if (!payment.providerTransactionId) {
-      return { success: false, status: "FAILED", message: "No paymentReferenceId on record" };
+      return { success: false, status: "PROCESSING", message: "Awaiting manual verification" };
     }
     return verifyWithNagad(payment, payment.providerTransactionId);
   },

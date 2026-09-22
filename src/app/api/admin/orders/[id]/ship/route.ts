@@ -8,9 +8,9 @@ const schema = z.object({ provider: z.enum(["STEADFAST", "PATHAO"]) });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
-    await requireRole("ADMIN", "STAFF");
+    const session = await requireRole("ADMIN", "STAFF");
     const { provider } = schema.parse(await req.json());
-    const shipment = await bookCourierShipment(params.id, provider);
+    const shipment = await bookCourierShipment(params.id, provider, session.user.id);
     return NextResponse.json({ shipment }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

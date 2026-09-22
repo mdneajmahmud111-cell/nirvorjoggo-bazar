@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCourierAdapter } from "@/lib/couriers/registry";
 import { resolveCodPaymentOnDelivery } from "@/lib/payments/payment-service";
 
-export async function bookCourierShipment(orderId: string, provider: CourierProviderCode) {
+export async function bookCourierShipment(orderId: string, provider: CourierProviderCode, actorUserId?: string) {
   const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
   const hasCod = await prisma.payment.findFirst({
     where: { orderId, status: { in: ["PENDING", "PROCESSING"] }, paymentMethod: { code: "COD" } },
@@ -26,7 +26,9 @@ export async function bookCourierShipment(orderId: string, provider: CourierProv
   });
 
   await prisma.order.update({ where: { id: orderId }, data: { status: "PROCESSING" } });
-  await prisma.orderStatusHistory.create({ data: { orderId, status: "PROCESSING", note: `Shipment booked via ${provider}` } });
+  await prisma.orderStatusHistory.create({
+    data: { orderId, status: "PROCESSING", note: `Shipment booked via ${provider}`, changedByUserId: actorUserId },
+  });
 
   return shipment;
 }

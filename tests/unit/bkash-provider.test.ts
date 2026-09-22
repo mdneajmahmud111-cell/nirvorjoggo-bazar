@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/payments/audit", () => ({ recordTransaction: vi.fn() }));
+// These tests exercise the AUTOMATIC (real Checkout API) flow specifically, so the
+// PaymentMethod config the provider reads must be pinned to AUTOMATIC regardless of what
+// mode is actually configured in the dev/prod database (which defaults to MANUAL — see
+// bkash-manual-mode below for that path).
+vi.mock("@/lib/prisma", () => ({
+  prisma: { paymentMethod: { findUnique: vi.fn().mockResolvedValue({ mode: "AUTOMATIC", merchantNumber: null }) } },
+}));
 vi.mock("@/lib/env", () => ({
   env: {
     appUrl: "http://localhost:3000",
@@ -130,5 +137,48 @@ describe("BkashProvider.handleCallback", () => {
     const result = await BkashProvider.handleCallback!({ paymentID: "TR0011", status: "success" }, basePayment);
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/mismatch/i);
+  });
+});
+
+describe("BkashProvider manual mode", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("shows the admin-configured personal number and never calls the bKash API, when mode is MANUAL", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/prisma", () => ({
+      prisma: { paymentMethod: { findUnique: vi.fn().mockResolvedValue({ mode: "MANUAL", merchantNumber: "01711112222" }) } },
+    }));
+    const { BkashProvider } = await import("@/lib/payments/bkash.provider");
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+
+    const result = await BkashProvider.initiate({ payment: basePayment, order: baseOrder });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.requiresManualVerification).toBe(true);
+    expect(result.instructions).toContain("01711112222");
+    expect(result.redirectUrl).toBeUndefined();
+  });
+
+  it("refuses to activate manual mode with no personal number configured, rather than showing a blank instruction", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/prisma", () => ({
+      prisma: { paymentMethod: { findUnique: vi.fn().mockResolvedValue({ mode: "MANUAL", merchantNumber: null }) } },
+    }));
+    const { BkashProvider } = await import("@/lib/payments/bkash.provider");
+
+    await expect(BkashProvider.initiate({ payment: basePayment, order: baseOrder })).rejects.toThrow(/no personal\/merchant number/i);
+  });
+
+  it("a manually-submitted payment (no real bKash paymentID) is never queried against the live bKash API", async () => {
+    const BkashProvider = await freshProvider();
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+
+    const result = await BkashProvider.queryStatus!({ ...basePayment, providerTransactionId: null });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.status).toBe("PROCESSING");
   });
 });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AccountType, PaymentMethodCode } from "@prisma/client";
+import { AccountType, PaymentMethodCode, PaymentMode } from "@prisma/client";
 
 export const paymentMethodUpdateSchema = z.object({
   displayName: z.string().trim().min(1).max(80).optional(),
@@ -13,6 +13,9 @@ export const paymentMethodUpdateSchema = z.object({
   feeFixed: z.number().nonnegative().optional(),
   feePercent: z.number().min(0).max(100).optional(),
   merchantNumber: z.string().trim().max(40).optional().nullable(),
+  /** Only meaningful for BKASH/NAGAD — MANUAL (personal number, admin-verified) vs AUTOMATIC
+   *  (real merchant Checkout API). Ignored by other methods. */
+  mode: z.nativeEnum(PaymentMode).optional(),
   config: z.record(z.unknown()).optional().nullable(),
 });
 

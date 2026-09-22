@@ -213,7 +213,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result.body, { status: result.status });
   } catch (err) {
-    if (err instanceof PaymentProviderError) return jsonError(err.message, 422, err.rawResponse);
+    if (err instanceof PaymentProviderError) {
+      // Log the raw provider response server-side for debugging, but never forward a
+      // third-party API's raw error body to the customer's browser.
+      // eslint-disable-next-line no-console
+      console.error("Checkout payment initiation failed", err.message, err.rawResponse);
+      return jsonError(err.message, 422);
+    }
     return handleApiError(err);
   }
 }

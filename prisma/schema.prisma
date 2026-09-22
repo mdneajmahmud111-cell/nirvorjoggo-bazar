@@ -39,6 +39,17 @@ enum PaymentMethodCode {
   BANK_TRANSFER
 }
 
+// Only meaningful for BKASH and NAGAD, which can run either way: MANUAL (owner's personal
+// account number, customer submits a transaction ID, admin verifies by hand — no merchant
+// API credentials needed) or AUTOMATIC (real merchant Checkout API, once credentials are
+// configured). Other methods ignore this field (Rocket/Bank Transfer are always manual —
+// no public API exists for them; SSLCommerz is always automatic — it has no personal-account
+// equivalent; COD needs neither).
+enum PaymentMode {
+  MANUAL
+  AUTOMATIC
+}
+
 enum PaymentStatus {
   PENDING
   PROCESSING
@@ -441,6 +452,7 @@ model PaymentMethod {
   feeFixed       Decimal           @default(0) @db.Decimal(10, 2)
   feePercent     Decimal           @default(0) @db.Decimal(5, 2)
   merchantNumber String?
+  mode           PaymentMode       @default(MANUAL)
   // Non-secret, admin-editable provider config (sandbox flag, display config).
   // Real secrets (app keys, tokens) always come from environment variables, never this table.
   config         Json?

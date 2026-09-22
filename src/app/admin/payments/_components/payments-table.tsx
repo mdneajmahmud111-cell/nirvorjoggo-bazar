@@ -59,7 +59,11 @@ function PaymentRow({ payment }: { payment: PaymentRowData }) {
 
   const latestVerification = payment.verifications[0];
   const canReview = payment.verificationStatus === "PENDING_REVIEW" && Boolean(latestVerification);
-  const isRefundable = payment.status === "SUCCESS" && REFUNDABLE_METHOD_CODES.has(payment.paymentMethod.code);
+  // bKash/SSLCommerz support automated refunds, but only for a payment that actually went
+  // through their automated flow (has a real provider transaction ID) — a manually-verified
+  // bKash payment (personal-account mode) has none, so a refund must be handled outside the app.
+  const isRefundable =
+    payment.status === "SUCCESS" && REFUNDABLE_METHOD_CODES.has(payment.paymentMethod.code) && Boolean(payment.providerTransactionId);
 
   async function verify(action: "APPROVE" | "REJECT") {
     if (action === "REJECT" && !rejectionReason.trim()) {
@@ -196,7 +200,11 @@ function PaymentRow({ payment }: { payment: PaymentRowData }) {
           </button>
         )}
         {payment.status === "SUCCESS" && !isRefundable && (
-          <span className="text-xs text-gray-400">Refund not supported for {payment.paymentMethod.displayName}</span>
+          <span className="text-xs text-gray-400">
+            {REFUNDABLE_METHOD_CODES.has(payment.paymentMethod.code) && !payment.providerTransactionId
+              ? "Refund not automatable — this was a manually-verified payment; refund the customer directly."
+              : `Refund not supported for ${payment.paymentMethod.displayName}`}
+          </span>
         )}
       </div>
 
