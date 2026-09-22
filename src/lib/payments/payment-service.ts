@@ -285,7 +285,26 @@ export async function refundPayment(paymentId: string, amount: number, reason: s
     throw new PaymentProviderError(`${payment.paymentMethod.displayName} does not support automated refunds; process manually and record the outcome.`);
   }
 
-  const result = await provider.refund(payment, amount, reason);
+  let result;
+  try {
+    result = await provider.refund(payment, amount, reason);
+  } catch (err) {
+    // A thrown error (e.g. missing/invalid provider credentials, network failure) must still
+    // leave the Refund row in a terminal state — never stuck at PROCESSING — so admins can see
+    // and retry it instead of it silently vanishing into an unresolved limbo state.
+    await prisma.refund.update({
+      where: { id: refund.id },
+      data: { status: "FAILED", providerResponse: { error: err instanceof Error ? err.message : String(err) } },
+    });
+    await writeAuditLog({
+      userId: requestedByUserId,
+      action: "payment.refund",
+      entityType: "Refund",
+      entityId: refund.id,
+      newValue: { amount, reason, success: false, error: err instanceof Error ? err.message : String(err) },
+    });
+    throw err;
+  }
 
   const updatedRefund = await prisma.refund.update({
     where: { id: refund.id },
