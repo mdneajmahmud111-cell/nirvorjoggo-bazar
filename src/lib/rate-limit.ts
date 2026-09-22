@@ -44,8 +44,11 @@ export async function rateLimit(
   };
 }
 
-export function clientKeyFromRequest(req: Request, scope: string) {
+export function clientIpFromRequest(req: Request): string | undefined {
   const forwarded = req.headers.get("x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() ?? "unknown";
-  return `${scope}:${ip}`;
+  return forwarded?.split(",")[0]?.trim() || undefined;
+}
+
+export function clientKeyFromRequest(req: Request, scope: string) {
+  return `${scope}:${clientIpFromRequest(req) ?? "unknown"}`;
 }

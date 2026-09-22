@@ -1,12 +1,14 @@
 import { requireRole } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { isProviderConfigured } from "@/lib/env";
 import { PaymentMethodCard, type PaymentMethodData } from "./_components/payment-method-card";
 
 export default async function AdminPaymentMethodsPage() {
   await requireRole("ADMIN", "STAFF");
 
   const methods = await prisma.paymentMethod.findMany({ orderBy: { displayOrder: "asc" } });
-  const rows: PaymentMethodData[] = JSON.parse(JSON.stringify(methods));
+  const plain: Omit<PaymentMethodData, "isConfigured">[] = JSON.parse(JSON.stringify(methods));
+  const rows: PaymentMethodData[] = plain.map((m) => ({ ...m, isConfigured: isProviderConfigured(m.code) }));
 
   return (
     <div className="space-y-4">

@@ -17,7 +17,12 @@ export async function calculatePaymentAmount(paymentMethodId: string, orderTotal
 }
 
 /** Creates a Payment row for an order and kicks off the provider's initiation flow. */
-export async function initiatePaymentForOrder(orderId: string, paymentMethodCode: PaymentMethodCode, bankAccountId?: string) {
+export async function initiatePaymentForOrder(
+  orderId: string,
+  paymentMethodCode: PaymentMethodCode,
+  bankAccountId?: string,
+  clientIp?: string,
+) {
   const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
   const method = await prisma.paymentMethod.findUnique({ where: { code: paymentMethodCode } });
 
@@ -48,7 +53,7 @@ export async function initiatePaymentForOrder(orderId: string, paymentMethodCode
   const provider = getPaymentProvider(paymentMethodCode);
 
   try {
-    const result = await provider.initiate({ payment, order });
+    const result = await provider.initiate({ payment, order, clientIp });
 
     const updated = await prisma.payment.update({
       where: { id: payment.id },
@@ -63,6 +68,20 @@ export async function initiatePaymentForOrder(orderId: string, paymentMethodCode
     await prisma.payment.update({ where: { id: payment.id }, data: { status: "FAILED" } });
     throw err;
   }
+}
+
+/**
+ * Cash on Delivery has no online transaction to confirm ahead of time — the cash is collected
+ * by the courier, so an order actually being delivered is the real-world signal that a COD
+ * payment was collected. Called from every place an order can transition to DELIVERED (admin
+ * status update, courier delivery webhook/status refresh) so a COD Payment row never sits at
+ * PROCESSING forever even after the order is fully fulfilled and paid for.
+ */
+export async function resolveCodPaymentOnDelivery(orderId: string, verifiedByUserId?: string) {
+  await prisma.payment.updateMany({
+    where: { orderId, status: { in: ["PENDING", "PROCESSING"] }, paymentMethod: { code: "COD" } },
+    data: { status: "SUCCESS", verificationStatus: "VERIFIED", verifiedByUserId, verifiedAt: new Date() },
+  });
 }
 
 async function markOrderConfirmedIfPaid(orderId: string) {

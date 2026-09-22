@@ -90,3 +90,27 @@ export const env = {
     maxRequests: Number(optional("RATE_LIMIT_MAX_REQUESTS") ?? "60"),
   },
 };
+
+/**
+ * Whether the given payment method's real provider credentials are present in this
+ * deployment's environment. COD and Bank Transfer need none (manual flows), so they're
+ * always "configured". Used to stop an admin from activating a gateway that has no
+ * working credentials behind it — see /api/admin/payment-methods/[id].
+ */
+export function isProviderConfigured(code: string): boolean {
+  switch (code) {
+    case "BKASH":
+      return env.bkash.isConfigured();
+    case "NAGAD":
+      return env.nagad.isConfigured();
+    case "ROCKET":
+      return env.rocket.isConfigured();
+    case "SSLCOMMERZ":
+      return env.sslcommerz.isConfigured();
+    case "COD":
+    case "BANK_TRANSFER":
+      return true;
+    default:
+      return false;
+  }
+}

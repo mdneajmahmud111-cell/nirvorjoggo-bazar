@@ -3,6 +3,9 @@ import type { Order, OrderItem, Payment, PaymentMethodCode, PaymentStatus } from
 export interface PaymentInitiationContext {
   payment: Payment;
   order: Order & { items: OrderItem[] };
+  /** The customer's real request IP, when known — required by providers (e.g. Nagad's
+   *  X-KM-IP-V4 header) that use it for fraud/geo checks. Falls back per-provider when absent. */
+  clientIp?: string;
 }
 
 export interface PaymentInitiationResult {

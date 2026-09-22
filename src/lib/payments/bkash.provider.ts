@@ -126,7 +126,7 @@ export const BkashProvider: PaymentProvider = {
       mode: "0011",
       payerReference: ctx.order.customerPhone,
       callbackURL: env.bkash.callbackUrl(),
-      amount: ctx.payment.amount.toString(),
+      amount: Number(ctx.payment.amount).toFixed(2),
       currency: "BDT",
       intent: "sale",
       merchantInvoiceNumber: ctx.payment.merchantTransactionId,
@@ -234,7 +234,7 @@ export const BkashProvider: PaymentProvider = {
     const idToken = await grantToken();
     const body = {
       paymentID: payment.providerTransactionId,
-      amount: amount.toString(),
+      amount: amount.toFixed(2),
       trxID: payment.transactionId ?? payment.providerTransactionId,
       sku: `order-${payment.orderId}`,
       reason,

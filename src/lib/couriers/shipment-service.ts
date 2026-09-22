@@ -1,6 +1,7 @@
 import type { CourierProvider as CourierProviderCode } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCourierAdapter } from "@/lib/couriers/registry";
+import { resolveCodPaymentOnDelivery } from "@/lib/payments/payment-service";
 
 export async function bookCourierShipment(orderId: string, provider: CourierProviderCode) {
   const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
@@ -45,6 +46,7 @@ export async function refreshShipmentStatus(shipmentId: string) {
   if (result.status === "DELIVERED") {
     await prisma.order.update({ where: { id: shipment.orderId }, data: { status: "DELIVERED" } });
     await prisma.orderStatusHistory.create({ data: { orderId: shipment.orderId, status: "DELIVERED", note: `Delivered (${shipment.provider})` } });
+    await resolveCodPaymentOnDelivery(shipment.orderId);
   }
 
   return updated;

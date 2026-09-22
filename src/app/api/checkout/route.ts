@@ -7,7 +7,7 @@ import { PaymentProviderError } from "@/lib/payments/types";
 import { handleApiError, jsonError } from "@/lib/api-response";
 import { getCurrentSession } from "@/lib/rbac";
 import { withIdempotency } from "@/lib/idempotency";
-import { rateLimit, clientKeyFromRequest } from "@/lib/rate-limit";
+import { rateLimit, clientKeyFromRequest, clientIpFromRequest } from "@/lib/rate-limit";
 import { writeAuditLog, requestMeta } from "@/lib/audit-log";
 
 function generateOrderNumber(): string {
@@ -192,7 +192,12 @@ export async function POST(req: Request) {
       });
 
       // 5. Kick off the selected payment method's real provider flow.
-      const { payment, initiation } = await initiatePaymentForOrder(order.id, data.paymentMethodCode, data.bankAccountId);
+      const { payment, initiation } = await initiatePaymentForOrder(
+        order.id,
+        data.paymentMethodCode,
+        data.bankAccountId,
+        clientIpFromRequest(req),
+      );
 
       return {
         status: 201,

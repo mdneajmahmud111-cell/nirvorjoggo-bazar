@@ -55,3 +55,11 @@ export function ActiveBadge({ isActive }: { isActive: boolean }) {
     </Badge>
   );
 }
+
+export function ConfiguredBadge({ isConfigured }: { isConfigured: boolean }) {
+  return (
+    <Badge className={isConfigured ? "bg-blue-100 text-blue-800" : "bg-red-100 text-red-800"}>
+      {isConfigured ? "Credentials configured" : "Missing environment variables"}
+    </Badge>
+  );
+}

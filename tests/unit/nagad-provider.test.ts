@@ -58,23 +58,57 @@ describe("NagadProvider.initiate", () => {
 
     // The sensitiveData the provider sent to Nagad must be decryptable ONLY with the
     // matching RSA private key — proving it is real PKCS1 encryption, not base64 window-dressing.
-    const decrypted = JSON.parse(
-      privateDecrypt({ key: privatePem, padding: constants.RSA_PKCS1_PADDING }, Buffer.from(initBody.sensitiveData, "base64")).toString(),
-    );
+    const initPlaintext = privateDecrypt(
+      { key: privatePem, padding: constants.RSA_PKCS1_PADDING },
+      Buffer.from(initBody.sensitiveData, "base64"),
+    ).toString();
+    const decrypted = JSON.parse(initPlaintext);
     expect(decrypted.merchantId).toBe("MERCHANT001");
     expect(decrypted.orderId).toBe("NB-TEST-0003");
+    expect(decrypted.datetime).toBe(initBody.dateTime);
     expect(typeof decrypted.challenge).toBe("string");
 
-    // The signature must verify against the same payload with the public key.
-    const verifier = createVerify("SHA256");
-    verifier.update(`MERCHANT001NB-TEST-0003${initBody.dateTime}`);
-    verifier.end();
-    expect(verifier.verify(publicPem, initBody.signature, "base64")).toBe(true);
+    // Nagad requires the signature to be computed over the EXACT SAME plaintext that was
+    // encrypted into sensitiveData — never a field concatenation, never the ciphertext. Verify
+    // that property directly: the decrypted plaintext bytes must themselves verify the signature.
+    const initVerifier = createVerify("SHA256");
+    initVerifier.update(initPlaintext);
+    initVerifier.end();
+    expect(initVerifier.verify(publicPem, initBody.signature, "base64")).toBe(true);
 
-    const completeDecrypted = JSON.parse(
-      privateDecrypt({ key: privatePem, padding: constants.RSA_PKCS1_PADDING }, Buffer.from(completeBody.sensitiveData, "base64")).toString(),
-    );
+    const completePlaintext = privateDecrypt(
+      { key: privatePem, padding: constants.RSA_PKCS1_PADDING },
+      Buffer.from(completeBody.sensitiveData, "base64"),
+    ).toString();
+    const completeDecrypted = JSON.parse(completePlaintext);
     expect(completeDecrypted.amount).toBe("1200.00");
     expect(completeDecrypted.challenge).toBe("challenge-xyz");
+
+    const completeVerifier = createVerify("SHA256");
+    completeVerifier.update(completePlaintext);
+    completeVerifier.end();
+    expect(completeVerifier.verify(publicPem, completeBody.signature, "base64")).toBe(true);
+  });
+
+  it("reuses one timestamp across the encrypted payload, the signature, and the transmitted dateTime field", async () => {
+    const seen: string[] = [];
+    global.fetch = vi.fn(async (url: any, options: any) => {
+      const parsed = JSON.parse(options.body);
+      if (String(url).includes("/check-out/initialize/")) {
+        seen.push(parsed.dateTime);
+        const plaintext = privateDecrypt(
+          { key: privatePem, padding: constants.RSA_PKCS1_PADDING },
+          Buffer.from(parsed.sensitiveData, "base64"),
+        ).toString();
+        seen.push(JSON.parse(plaintext).datetime);
+        return { ok: true, json: async () => ({ sensitiveData: "x", signature: "x", paymentReferenceId: "ref-123", challenge: "c" }) } as Response;
+      }
+      return { ok: true, json: async () => ({ status: "Success", callBackUrl: "https://sandbox.mynagad.com/pay/ref-123" }) } as Response;
+    }) as unknown as typeof fetch;
+
+    await NagadProvider.initiate({ payment: basePayment, order: baseOrder });
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBe(seen[1]);
   });
 });

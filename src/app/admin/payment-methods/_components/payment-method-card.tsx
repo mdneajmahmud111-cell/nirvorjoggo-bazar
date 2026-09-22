@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { paymentMethodUpdateSchema } from "@/lib/validation/admin";
 import type { z } from "zod";
-import { ActiveBadge } from "../../_components/badges";
+import { ActiveBadge, ConfiguredBadge } from "../../_components/badges";
 
 type FormValues = z.infer<typeof paymentMethodUpdateSchema>;
 
@@ -24,6 +24,7 @@ export interface PaymentMethodData {
   feeFixed: string;
   feePercent: string;
   merchantNumber: string | null;
+  isConfigured: boolean;
 }
 
 const ENV_VARS_BY_CODE: Record<string, string[]> = {
@@ -105,6 +106,7 @@ export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
         </div>
         <div className="flex items-center gap-2">
           <ActiveBadge isActive={method.isActive} />
+          {envVars.length > 0 && <ConfiguredBadge isConfigured={method.isConfigured} />}
           <button type="button" className="btn-secondary" onClick={() => setOpen((o) => !o)}>
             {open ? "Close" : "Edit"}
           </button>
@@ -119,6 +121,12 @@ export function PaymentMethodCard({ method }: { method: PaymentMethodData }) {
               Active (visible to customers at checkout)
             </label>
           </div>
+          {envVars.length > 0 && !method.isConfigured && (
+            <p className="rounded-md bg-red-50 p-2 text-xs text-red-700">
+              This method cannot be activated yet — the server is missing one or more of the environment variables listed below.
+              Set them and redeploy first.
+            </p>
+          )}
 
           <div>
             <label className="label" htmlFor={`displayName-${method.id}`}>

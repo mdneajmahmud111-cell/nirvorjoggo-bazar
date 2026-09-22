@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { orderStatusUpdateSchema } from "@/lib/validation/admin";
 import { handleApiError } from "@/lib/api-response";
 import { requireRole } from "@/lib/rbac";
+import { resolveCodPaymentOnDelivery } from "@/lib/payments/payment-service";
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
@@ -17,6 +18,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         statusHistory: { create: { status: data.status, note: data.note, changedByUserId: session.user.id } },
       },
     });
+
+    if (data.status === "DELIVERED") {
+      await resolveCodPaymentOnDelivery(order.id, session.user.id);
+    }
 
     return NextResponse.json({ order });
   } catch (err) {

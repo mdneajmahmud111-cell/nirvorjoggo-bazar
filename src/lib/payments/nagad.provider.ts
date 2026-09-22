@@ -1,4 +1,4 @@
-import { createHash, publicEncrypt, randomBytes, createSign, createVerify, constants } from "crypto";
+import { publicEncrypt, randomBytes, createSign, constants } from "crypto";
 import type { Payment } from "@prisma/client";
 import { env } from "@/lib/env";
 import type { PaymentCallbackResult, PaymentInitiationContext, PaymentInitiationResult, PaymentProvider } from "@/lib/payments/types";
@@ -15,30 +15,26 @@ import { recordTransaction } from "@/lib/payments/audit";
  * we independently call the verify/payment endpoint (never trust the redirect query params alone).
  */
 
-function sensitiveDataEncrypt(data: object): string {
-  const buffer = Buffer.from(JSON.stringify(data));
-  return publicEncrypt(
-    { key: env.nagad.publicKey(), padding: constants.RSA_PKCS1_PADDING },
-    buffer,
-  ).toString("base64");
+/**
+ * Encrypts a plaintext string with Nagad's RSA public key (PKCS1 padding), per Nagad's
+ * Merchant Checkout API spec (confirmed against the reference `openssl_public_encrypt`
+ * implementation widely used for this integration).
+ */
+function encryptWithPublicKey(plaintext: string): string {
+  return publicEncrypt({ key: env.nagad.publicKey(), padding: constants.RSA_PKCS1_PADDING }, Buffer.from(plaintext)).toString("base64");
 }
 
-function sign(data: string): string {
+/**
+ * Signs a plaintext string with the merchant's RSA private key (SHA256withRSA). Nagad requires
+ * the `signature` to be computed over the EXACT SAME plaintext JSON string that is passed to
+ * `encryptWithPublicKey` for `sensitiveData` — never a field concatenation and never the
+ * ciphertext — otherwise Nagad's signature verification rejects the request.
+ */
+function sign(plaintext: string): string {
   const signer = createSign("SHA256");
-  signer.update(data);
+  signer.update(plaintext);
   signer.end();
   return signer.sign(env.nagad.privateKey(), "base64");
-}
-
-function verifySignature(data: string, signature: string): boolean {
-  try {
-    const verifier = createVerify("SHA256");
-    verifier.update(data);
-    verifier.end();
-    return verifier.verify(env.nagad.publicKey(), signature, "base64");
-  } catch {
-    return false;
-  }
 }
 
 function dateTimeStamp(): string {
@@ -103,33 +99,40 @@ export const NagadProvider: PaymentProvider = {
   async initiate(ctx: PaymentInitiationContext): Promise<PaymentInitiationResult> {
     const merchantId = env.nagad.merchantId();
     const orderId = ctx.payment.merchantTransactionId;
-    const clientIp = "127.0.0.1";
+    const clientIp = ctx.clientIp || "127.0.0.1";
     const challenge = randomBytes(20).toString("hex");
+    // Computed once and reused for the encrypted payload, the signature, and the transmitted
+    // `dateTime` field — calling this separately for each would let the clock tick over between
+    // calls and produce a signature that doesn't match the timestamp Nagad actually receives.
+    const datetime = dateTimeStamp();
 
-    const initSensitive = sensitiveDataEncrypt({ merchantId, datetime: dateTimeStamp(), orderId, challenge });
-    const initSignature = sign(`${merchantId}${orderId}${dateTimeStamp()}`);
+    const initPlaintext = JSON.stringify({ merchantId, datetime, orderId, challenge });
+    const initSensitive = encryptWithPublicKey(initPlaintext);
+    const initSignature = sign(initPlaintext);
 
     const initResponse = await nagadFetch<InitResponse>(
       `/check-out/initialize/${merchantId}/${orderId}`,
       baseHeaders(clientIp),
-      { accountNumber: env.nagad.merchantNumber(), dateTime: dateTimeStamp(), sensitiveData: initSensitive, signature: initSignature },
+      { accountNumber: env.nagad.merchantNumber(), dateTime: datetime, sensitiveData: initSensitive, signature: initSignature },
     );
 
     await recordTransaction(ctx.payment.id, "TOKEN", "SUCCESS", { orderId }, initResponse, initResponse.paymentReferenceId);
 
     const amount = Number(ctx.payment.amount).toFixed(2);
-    const completeSensitive = sensitiveDataEncrypt({
+    const completePlaintext = JSON.stringify({
       merchantId,
       orderId,
       currencyCode: "050",
       amount,
       challenge: initResponse.challenge,
     });
+    const completeSensitive = encryptWithPublicKey(completePlaintext);
+    const completeSignature = sign(completePlaintext);
 
     const completeResponse = await nagadFetch<CompleteResponse>(
       `/check-out/complete/${initResponse.paymentReferenceId}`,
       baseHeaders(clientIp),
-      { sensitiveData: completeSensitive, signature: sign(completeSensitive), merchantCallbackURL: env.nagad.callbackUrl() },
+      { sensitiveData: completeSensitive, signature: completeSignature, merchantCallbackURL: env.nagad.callbackUrl() },
     );
 
     await recordTransaction(ctx.payment.id, "CREATE", completeResponse.callBackUrl ? "SUCCESS" : "FAILED", { orderId }, completeResponse, initResponse.paymentReferenceId);
@@ -161,10 +164,9 @@ export const NagadProvider: PaymentProvider = {
     return verifyWithNagad(payment, payment.providerTransactionId);
   },
 
-  verifyWebhookSignature(rawBody: string, signature: string | null): boolean {
-    if (!signature) return false;
-    return verifySignature(createHash("sha256").update(rawBody).digest("hex"), signature);
-  },
+  // Nagad's Checkout API has no separate signed IPN/webhook for this flow — verification happens
+  // by calling GET /verify/payment/{paymentRefId} ourselves (see handleCallback/queryStatus
+  // above), which is why there is no handleWebhook/verifyWebhookSignature implementation here.
 };
 
 async function verifyWithNagad(payment: Payment, paymentRefId: string): Promise<PaymentCallbackResult> {
