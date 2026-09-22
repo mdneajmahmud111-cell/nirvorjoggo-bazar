@@ -60,11 +60,17 @@ export const authOptions: AuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.phone = user.phone;
+      }
+      // Allows client-side `useSession().update({ name, email })` (e.g. after a profile edit)
+      // to refresh the JWT without requiring a full re-login.
+      if (trigger === "update" && session) {
+        if (typeof session.name === "string") token.name = session.name;
+        if (typeof session.email === "string") token.email = session.email;
       }
       return token;
     },
