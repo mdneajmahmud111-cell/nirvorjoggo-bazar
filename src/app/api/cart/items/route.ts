@@ -22,18 +22,24 @@ export async function POST(req: Request) {
       ? (await prisma.productVariant.findUnique({ where: { id: data.variantId } }))?.stock ?? 0
       : product.stock;
 
-    const existing = await prisma.cartItem.findUnique({
-      where: { cartId_productId_variantId: { cartId: cart.id, productId: data.productId, variantId: data.variantId ?? null } as any },
-    }).catch(() => null);
+    // Prisma's compound-unique shorthand (`cartId_productId_variantId`) rejects an explicit
+    // `null` for the nullable `variantId` column at the client level (SQL NULL isn't equal to
+    // itself), so look the row up with a plain `findFirst`/`where` filter instead, which
+    // handles `variantId: null` correctly, then create/update by row id.
+    const existing = await prisma.cartItem.findFirst({
+      where: { cartId: cart.id, productId: data.productId, variantId: data.variantId ?? null },
+    });
 
     const desiredQty = (existing?.quantity ?? 0) + data.quantity;
     if (desiredQty > stock) return jsonError(`Only ${stock} in stock`, 422);
 
-    await prisma.cartItem.upsert({
-      where: { cartId_productId_variantId: { cartId: cart.id, productId: data.productId, variantId: data.variantId ?? null } as any },
-      create: { cartId: cart.id, productId: data.productId, variantId: data.variantId, quantity: data.quantity },
-      update: { quantity: desiredQty },
-    });
+    if (existing) {
+      await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: desiredQty } });
+    } else {
+      await prisma.cartItem.create({
+        data: { cartId: cart.id, productId: data.productId, variantId: data.variantId, quantity: data.quantity },
+      });
+    }
 
     const updated = await resolveCart();
     return NextResponse.json({ cart: updated, totals: cartTotals(updated.items) }, { status: 201 });

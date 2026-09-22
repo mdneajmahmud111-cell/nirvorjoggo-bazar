@@ -1,4 +1,4 @@
-import { queryProducts } from "@/lib/products";
+import { queryProducts, toProductCardData } from "@/lib/products";
 import { ProductCard } from "@/components/product-card";
 import { PaginationControls } from "@/components/pagination-controls";
 
@@ -45,7 +45,7 @@ export default async function SearchPage({
             </p>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {result.items.map((product) => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard key={product.id} product={toProductCardData(product)} />
               ))}
             </div>
             <PaginationControls

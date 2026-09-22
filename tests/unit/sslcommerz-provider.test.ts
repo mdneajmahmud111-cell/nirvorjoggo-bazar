@@ -62,20 +62,20 @@ describe("SSLCommerzProvider IPN / callback validation", () => {
 
   it("never trusts the callback payload directly — always re-validates via SSLCommerz's Validation API", async () => {
     mockFetchOnce({ status: "VALID", tran_id: "NB-TEST-0002", val_id: "val-1", amount: "750.00", currency: "BDT", bank_tran_id: "bank-1" });
-    const result = await SSLCommerzProvider.handleCallback({ val_id: "val-1" }, basePayment);
+    const result = await SSLCommerzProvider.handleCallback!({ val_id: "val-1" }, basePayment);
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("validationserverAPI.php"), expect.anything());
     expect(result.success).toBe(true);
   });
 
   it("rejects when the validated amount does not match our recorded payment amount", async () => {
     mockFetchOnce({ status: "VALID", tran_id: "NB-TEST-0002", val_id: "val-1", amount: "1.00", currency: "BDT" });
-    const result = await SSLCommerzProvider.handleCallback({ val_id: "val-1" }, basePayment);
+    const result = await SSLCommerzProvider.handleCallback!({ val_id: "val-1" }, basePayment);
     expect(result.success).toBe(false);
   });
 
   it("rejects an unverifiable transaction id", async () => {
     mockFetchOnce({ status: "INVALID" });
-    const result = await SSLCommerzProvider.handleWebhook({ val_id: "val-1" }, null, basePayment);
+    const result = await SSLCommerzProvider.handleWebhook!({ val_id: "val-1" }, null, basePayment);
     expect(result.success).toBe(false);
   });
 });

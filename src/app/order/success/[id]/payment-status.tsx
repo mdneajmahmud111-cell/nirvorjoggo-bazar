@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,7 +35,6 @@ export function PaymentStatusPanel({
   needsManualSubmission: boolean;
   initialShowForm: boolean;
 }) {
-  const { status: sessionStatus } = useSession();
   const [payment, setPayment] = useState<PaymentInfo>(initialPayment);
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -156,20 +154,18 @@ export function PaymentStatusPanel({
               <p className="mt-1 text-xs text-red-600">{form.formState.errors.senderNumber.message}</p>
             )}
           </div>
-          {sessionStatus === "authenticated" && (
-            <div>
-              <label className="label" htmlFor="receipt">
-                Payment receipt (optional)
-              </label>
-              <input
-                id="receipt"
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                className="input"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-            </div>
-          )}
+          <div>
+            <label className="label" htmlFor="receipt">
+              Payment receipt (optional)
+            </label>
+            <input
+              id="receipt"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              className="input"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </div>
           <div>
             <label className="label" htmlFor="note">
               Note (optional)

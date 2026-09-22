@@ -11,6 +11,10 @@ export interface ShippingEstimate {
   isFreeShipping: boolean;
   estimatedDaysMin: number;
   estimatedDaysMax: number;
+  /** Admin-configured COD surcharge for this zone, as a percent (e.g. 1.5 = 1.5%).
+   *  Applied on top of (subtotal + shippingFee) only when Cash on Delivery is selected —
+   *  exposed here so the frontend can show an accurate order total before placing the order. */
+  codSurchargePercent: number;
 }
 
 /**
@@ -58,6 +62,7 @@ export async function calculateShippingFee(params: {
     isFreeShipping,
     estimatedDaysMin: zone.estimatedDaysMin,
     estimatedDaysMax: zone.estimatedDaysMax,
+    codSurchargePercent: Number(zone.codSurchargePercent),
   };
 }
 

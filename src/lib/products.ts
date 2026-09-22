@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import type { ProductCardData } from "@/components/product-card";
 
 export const PRODUCTS_PAGE_SIZE = 12;
 
@@ -58,4 +59,27 @@ export async function queryProducts(params: ProductQueryParams) {
   ]);
 
   return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+}
+
+/** Converts a Prisma Product (Decimal fields) into the plain-number shape ProductCard expects. */
+export function toProductCardData(product: {
+  id: string;
+  name: string;
+  slug: string;
+  price: unknown;
+  comparePrice: unknown;
+  ratingAvg: unknown;
+  ratingCount: number;
+  images: { url: string; altText?: string | null }[];
+}): ProductCardData {
+  return {
+    id: product.id,
+    name: product.name,
+    slug: product.slug,
+    price: Number(product.price),
+    comparePrice: product.comparePrice != null ? Number(product.comparePrice) : null,
+    ratingAvg: Number(product.ratingAvg),
+    ratingCount: product.ratingCount,
+    images: product.images,
+  };
 }

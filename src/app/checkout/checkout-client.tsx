@@ -79,6 +79,7 @@ interface ShippingEstimate {
   estimatedDaysMin: number;
   estimatedDaysMax: number;
   isFreeShipping: boolean;
+  codSurchargePercent: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +216,7 @@ export function CheckoutClient({ paymentError }: { paymentError?: string }) {
   const divisions = useMemo(() => Array.from(new Set(locations.map((l) => l.division))).sort(), [locations]);
   const watchedDivision = addressForm.watch("division");
   const watchedDistrict = addressForm.watch("district");
+  const watchedArea = addressForm.watch("area");
   const districts = useMemo(
     () => Array.from(new Set(locations.filter((l) => l.division === watchedDivision).map((l) => l.district))).sort(),
     [locations, watchedDivision],
@@ -239,9 +241,10 @@ export function CheckoutClient({ paymentError }: { paymentError?: string }) {
       const found = addresses.find((a) => a.id === selectedAddressId);
       return found ? { division: found.division, district: found.district, area: found.area } : null;
     }
-    const { division, district, area } = addressForm.watch();
-    return division && district && area ? { division, district, area } : null;
-  }, [addressMode, addresses, selectedAddressId, addressForm]);
+    return watchedDivision && watchedDistrict && watchedArea
+      ? { division: watchedDivision, district: watchedDistrict, area: watchedArea }
+      : null;
+  }, [addressMode, addresses, selectedAddressId, watchedDivision, watchedDistrict, watchedArea]);
 
   // Recalculate shipping whenever the address or cart changes.
   const recalcShipping = useCallback(async () => {
@@ -278,7 +281,12 @@ export function CheckoutClient({ paymentError }: { paymentError?: string }) {
     recalcShipping();
   }, [recalcShipping]);
 
-  const total = subtotal + (shippingEstimate?.fee ?? 0);
+  const preSurchargeTotal = subtotal + (shippingEstimate?.fee ?? 0);
+  const codSurcharge =
+    paymentMethodCode === "COD" && shippingEstimate
+      ? Math.round(preSurchargeTotal * (shippingEstimate.codSurchargePercent / 100) * 100) / 100
+      : 0;
+  const total = preSurchargeTotal + codSurcharge;
   const selectedMethod = methods.find((m) => m.code === paymentMethodCode);
 
   function methodFeeLabel(m: PaymentMethodDto) {
@@ -697,10 +705,10 @@ export function CheckoutClient({ paymentError }: { paymentError?: string }) {
                 ))}
               </div>
             )}
-            {paymentMethodCode === "COD" && (
+            {paymentMethodCode === "COD" && shippingEstimate && shippingEstimate.codSurchargePercent > 0 && (
               <p className="mt-3 text-xs text-gray-500">
-                A cash-on-delivery handling fee may be added to your total for this zone; the final amount will be
-                shown on your order confirmation.
+                A {shippingEstimate.codSurchargePercent}% cash-on-delivery handling fee ({formatBDT(codSurcharge)}) applies for{" "}
+                {shippingEstimate.zoneName}, included in the total below.
               </p>
             )}
           </section>
@@ -746,6 +754,12 @@ export function CheckoutClient({ paymentError }: { paymentError?: string }) {
               <span>Shipping</span>
               <span>{shippingEstimate ? formatBDT(shippingEstimate.fee) : "—"}</span>
             </div>
+            {codSurcharge > 0 && (
+              <div className="flex justify-between text-gray-700">
+                <span>COD handling fee</span>
+                <span>{formatBDT(codSurcharge)}</span>
+              </div>
+            )}
             <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-semibold text-gray-900">
               <span>Total</span>
               <span>{formatBDT(total)}</span>

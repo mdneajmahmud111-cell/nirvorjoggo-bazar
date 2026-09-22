@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { ProductCard } from "@/components/product-card";
+import { toProductCardData } from "@/lib/products";
 
 export const revalidate = 60;
 
@@ -72,7 +73,7 @@ export default async function HomePage() {
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {featuredProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard key={product.id} product={toProductCardData(product)} />
             ))}
           </div>
         )}
